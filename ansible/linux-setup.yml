@@ -1,0 +1,91 @@
+---
+- name: Linux Server Setup & Security Hardening
+  hosts: all
+  become: yes
+
+  vars:
+    ssh_port: 22
+    disk_usage_threshold: 80
+
+  tasks:
+    - name: Update and upgrade apt packages (Ubuntu)
+      apt:
+        update_cache: yes
+        upgrade: dist
+      when: ansible_os_family == "Debian"
+
+    - name: Update and upgrade yum packages (RHEL)
+      yum:
+        name: "*"
+        state: latest
+      when: ansible_os_family == "RedHat"
+
+    - name: Install essential packages
+      package:
+        name:
+          - git
+          - curl
+          - docker.io
+          - fail2ban
+          - ufw
+        state: present
+
+    - name: Enable and start Docker service
+      systemd:
+        name: docker
+        enabled: yes
+        state: started
+
+    - name: Configure firewall (UFW) for SSH
+      ufw:
+        rule: allow
+        name: OpenSSH
+      when: ansible_os_family == "Debian"
+
+    - name: Configure firewall (firewalld) for SSH
+      firewalld:
+        service: ssh
+        permanent: yes
+        state: enabled
+        immediate: yes
+      when: ansible_os_family == "RedHat"
+
+    - name: Harden SSH - Disable root login and password authentication
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: "{{ item.regexp }}"
+        line: "{{ item.line }}"
+        state: present
+        backup: yes
+      with_items:
+        - { regexp: '^PermitRootLogin', line: 'PermitRootLogin no' }
+        - { regexp: '^PasswordAuthentication', line: 'PasswordAuthentication no' }
+
+    - name: Restart SSH service
+      service:
+        name: sshd
+        state: restarted
+      when: ansible_os_family == "RedHat"
+
+    - name: Restart SSH service (Ubuntu)
+      service:
+        name: ssh
+        state: restarted
+      when: ansible_os_family == "Debian"
+
+    - name: Create new sudo user
+      user:
+        name: sysadmin
+        groups: sudo,docker
+        append: yes
+        shell: /bin/bash
+        state: present
+
+    - name: Check disk usage
+      command: df -h /
+      register: disk_usage
+
+    - name: Fail if disk usage above threshold
+      fail:
+        msg: "Disk usage is above {{ disk_usage_threshold }}%"
+      when: disk_usage.stdout_lines[1].split()[4].rstrip('%')|int > disk_usage_threshold

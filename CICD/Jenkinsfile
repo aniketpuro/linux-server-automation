@@ -1,0 +1,30 @@
+pipeline {
+    agent any
+
+    stages {
+        stage('Checkout') {
+            steps {
+                git 'https://github.com/your-username/linux-server-automation.git'
+            }
+        }
+        stage('Build Docker Image') {
+            steps {
+                script {
+                    dockerImage = docker.build("yourusername/linux-server-automation-app")
+                }
+            }
+        }
+        stage('Push Image') {
+            steps {
+                withDockerRegistry([credentialsId: 'dockerhub-creds', url: '']) {
+                    dockerImage.push('latest')
+                }
+            }
+        }
+        stage('Deploy') {
+            steps {
+                sh 'ssh sysadmin@yourserver "docker pull yourusername/linux-server-automation-app:latest && docker stop app || true && docker rm app || true && docker run -d --name app -p 80:80 yourusername/linux-server-automation-app:latest"'
+            }
+        }
+    }
+}
